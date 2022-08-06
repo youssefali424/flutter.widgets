@@ -59,3 +59,16 @@ class ItemPosition {
   String toString() =>
       'ItemPosition(index: $index, itemLeadingEdge: $itemLeadingEdge, itemTrailingEdge: $itemTrailingEdge)';
 }
+
+class ActivePosition extends ItemPosition {
+  ActivePosition({
+    required int index,
+    required double itemLeadingEdge,
+    required double itemTrailingEdge,
+    required this.activeIndex,
+  }) : super(
+            index: index,
+            itemLeadingEdge: itemLeadingEdge,
+            itemTrailingEdge: itemTrailingEdge);
+  double activeIndex;
+}
