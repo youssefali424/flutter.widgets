@@ -3,8 +3,15 @@
 // found in the LICENSE file.
 
 import 'dart:math';
+import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
+import 'package:collection/collection.dart';
+
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+
+import 'interpolate.dart';
+import 'models/collectionPhoto.dart';
+import 'network/networkService.dart';
 
 const numberOfItems = 5001;
 const minItemHeight = 20.0;
@@ -69,6 +76,7 @@ class _ScrollablePositionedListPageState
 
   /// The alignment to be used next time the user scrolls or jumps to an item.
   double alignment = 0;
+  BuiltList<CollectionPhoto>? photosList;
 
   @override
   void initState() {
@@ -82,35 +90,42 @@ class _ScrollablePositionedListPageState
             minItemHeight);
     itemColors = List<Color>.generate(numberOfItems,
         (int _) => Color(colorGenerator.nextInt(randomMax)).withOpacity(1));
+    Future.microtask(() async {
+      var list = await fetchList<CollectionPhoto>(
+          "photos/random?count=30&query=nature");
+      setState(() {
+        this.photosList = list;
+      });
+    });
   }
 
   @override
-  Widget build(BuildContext context) => Material(
-        child: OrientationBuilder(
-          builder: (context, orientation) => Column(
-            children: <Widget>[
-              Expanded(
-                child: list(orientation),
-              ),
-              positionsView,
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Column(
-                    children: <Widget>[
-                      scrollControlButtons,
-                      scrollOffsetControlButtons,
-                      const SizedBox(height: 10),
-                      jumpControlButtons,
-                      alignmentControl,
-                    ],
-                  ),
-                ],
-              )
-            ],
+  Widget build(BuildContext context) => SafeArea(
+    child: Material(
+          child: OrientationBuilder(
+            builder: (context, orientation) => Column(
+              children: <Widget>[
+                Expanded(
+                  child: list(orientation),
+                ),
+                positionsView,
+                Row(
+                  children: <Widget>[
+                    Column(
+                      children: <Widget>[
+                        scrollControlButtons,
+                        const SizedBox(height: 10),
+                        jumpControlButtons,
+                        alignmentControl,
+                      ],
+                    ),
+                  ],
+                )
+              ],
+            ),
           ),
         ),
-      );
+  );
 
   Widget get alignmentControl => Row(
         mainAxisSize: MainAxisSize.max,
@@ -132,23 +147,30 @@ class _ScrollablePositionedListPageState
         ],
       );
 
-  Widget list(Orientation orientation) => ScrollablePositionedList.builder(
-        itemCount: numberOfItems,
-        itemBuilder: (context, index) => item(index, orientation),
-        itemScrollController: itemScrollController,
-        itemPositionsListener: itemPositionsListener,
-        scrollOffsetController: scrollOffsetController,
-        reverse: reversed,
-        scrollDirection: orientation == Orientation.portrait
-            ? Axis.vertical
-            : Axis.horizontal,
-      );
+  Widget list(Orientation orientation) {
+    var mediaQuerySize = MediaQuery.of(context).size;
+    var maxSize = orientation == Orientation.portrait
+        ? mediaQuerySize.width
+        : mediaQuerySize.height;
+    return ScrollablePositionedList.animatedBuilder(
+      itemCount: photosList!.length,
+      animatedItemBuilder: (context, index, currPos) =>
+          item(index, orientation, currPos, maxSize),
+      itemScrollController: itemScrollController,
+      itemPositionsListener: itemPositionsListener,
+      reverse: reversed,
+      scrollDirection:
+          orientation == Orientation.portrait ? Axis.vertical : Axis.horizontal,
+      physics: BouncingScrollPhysics(),
+    );
+  }
 
   Widget get positionsView => ValueListenableBuilder<Iterable<ItemPosition>>(
         valueListenable: itemPositionsListener.itemPositions,
         builder: (context, positions, child) {
           int? min;
           int? max;
+          double? active;
           if (positions.isNotEmpty) {
             // Determine the first visible item by finding the item with the
             // smallest trailing edge that is greater than 0.  i.e. the first
@@ -170,17 +192,28 @@ class _ScrollablePositionedListPageState
                         ? position
                         : max)
                 .index;
+            active = (positions.firstWhereOrNull(
+                        (ItemPosition position) => position is ActivePosition)
+                    as ActivePosition?)
+                ?.activeIndex;
           }
-          return Row(
+          return Wrap(
+            // runSpacing: 2,
+            spacing: 5,
             children: <Widget>[
-              Expanded(child: Text('First Item: ${min ?? ''}')),
-              Expanded(child: Text('Last Item: ${max ?? ''}')),
-              const Text('Reversed: '),
-              Checkbox(
-                  value: reversed,
-                  onChanged: (bool? value) => setState(() {
-                        reversed = value!;
-                      }))
+              Text('First Item: ${min ?? ''}'),
+              Text('Last Item: ${max ?? ''}'),
+              Text('active Item: ${active?.toStringAsFixed(2) ?? ''}'),
+              Row(
+                children: [
+                  const Text('Reversed:'),
+                  Checkbox(
+                      value: reversed,
+                      onChanged: (bool? value) => setState(() {
+                            reversed = value!;
+                          }))
+                ],
+              )
             ],
           );
         },
@@ -272,16 +305,84 @@ class _ScrollablePositionedListPageState
       itemScrollController.jumpTo(index: index, alignment: alignment);
 
   /// Generate item number [i].
-  Widget item(int i, Orientation orientation) {
+  Widget item(int i, Orientation orientation, double currPos, double maxSize) {
+    var photo = photosList![i];
+    var isVertical = orientation == Orientation.portrait;
+
+    var width = (isVertical
+        ? maxSize
+        : (maxSize * (photo.width ?? 0)) / (photo.height ?? 1));
+    var height = (isVertical
+        ? (maxSize * (photo.height ?? 0)) / (photo.width ?? 1)
+        : maxSize);
+
+    var scale = interpolate(
+      currPos.roundToPrecision(6),
+      InterpolateConfig([
+        i.toDouble(),
+        i + 1
+      ], [
+        1.0,
+        1.8,
+      ], extrapolate: Extrapolate.CLAMP),
+    ).roundToPrecision(4);
+    var translatePer = interpolate(
+          currPos.roundToPrecision(6),
+          InterpolateConfig([
+            i.toDouble(),
+            i + 1
+          ], [
+            0.0,
+            0.3,
+          ], extrapolate: Extrapolate.CLAMP),
+        ) *
+        (reversed ? -1 : 1);
+
     return SizedBox(
-      height: orientation == Orientation.portrait ? itemHeights[i] : null,
-      width: orientation == Orientation.landscape ? itemHeights[i] : null,
-      child: Container(
-        color: itemColors[i],
-        child: Center(
-          child: Text('Item $i'),
+      height: height,
+      width: width,
+      child: Material(
+        color: Colors.transparent,
+        elevation: 10,
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          alignment: AlignmentDirectional.topStart,
+          children: [
+            Positioned.fill(
+              child: FractionalTranslation(
+                translation: Offset(!isVertical ? translatePer : 0.0,
+                    isVertical ? translatePer : 0.0),
+                child: Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()..scale(scale, scale),
+                  child: Image.network(
+                    photo.urls?.regular ?? photo.urls?.thumb ?? "",
+                    fit: BoxFit.fill,
+                    loadingBuilder: (context, image, progress) {
+                      if (progress != null)
+                        return Center(
+                          child: CircularProgressIndicator(
+                            value: (progress.cumulativeBytesLoaded) /
+                                (progress.expectedTotalBytes ?? 1.0),
+                          ),
+                        );
+                      return image;
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
+  }
+}
+
+extension Round on double {
+  double roundToPrecision(int n) {
+    int fac = pow(10, n).toInt();
+    return (this * fac).round() / fac;
   }
 }
