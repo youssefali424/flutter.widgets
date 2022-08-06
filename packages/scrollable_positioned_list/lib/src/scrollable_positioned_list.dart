@@ -57,7 +57,8 @@ class ScrollablePositionedList extends StatefulWidget {
     this.addAutomaticKeepAlives = true,
     this.addRepaintBoundaries = true,
     this.minCacheExtent,
-  })  : assert(itemCount != null),
+  })  : animatedItemBuilder = null,
+        assert(itemCount != null),
         assert(itemBuilder != null),
         itemPositionsNotifier = itemPositionsListener as ItemPositionsNotifier?,
         scrollOffsetNotifier = scrollOffsetListener as ScrollOffsetNotifier?,
@@ -87,19 +88,48 @@ class ScrollablePositionedList extends StatefulWidget {
     this.addAutomaticKeepAlives = true,
     this.addRepaintBoundaries = true,
     this.minCacheExtent,
-  })  : assert(itemCount != null),
+  })  : animatedItemBuilder = null,
+        assert(itemCount != null),
         assert(itemBuilder != null),
         assert(separatorBuilder != null),
         itemPositionsNotifier = itemPositionsListener as ItemPositionsNotifier?,
         scrollOffsetNotifier = scrollOffsetListener as ScrollOffsetNotifier?,
         super(key: key);
 
+  const ScrollablePositionedList.animatedBuilder({
+    required this.itemCount,
+    required this.animatedItemBuilder,
+    this.separatorBuilder,
+    Key? key,
+    this.shrinkWrap = false,
+    this.itemScrollController,
+    ItemPositionsListener? itemPositionsListener,
+    this.initialScrollIndex = 0,
+    this.initialAlignment = 0,
+    this.scrollDirection = Axis.vertical,
+    this.reverse = false,
+    this.physics,
+    this.semanticChildCount,
+    this.padding,
+    this.addSemanticIndexes = true,
+    this.addAutomaticKeepAlives = true,
+    this.addRepaintBoundaries = true,
+    this.minCacheExtent,
+  })  : itemBuilder = null,
+        itemPositionsNotifier = itemPositionsListener as ItemPositionsNotifier?,
+        super(key: key);
+
   /// Number of items the [itemBuilder] can produce.
   final int itemCount;
 
   /// Called to build children for the list with
+  /// 0 <= index < itemCount. and cactive position for
+  /// current active scroll percentage
+  final ActiveOffsetWidgetBuilder? animatedItemBuilder;
+
+  /// Called to build children for the list with
   /// 0 <= index < itemCount.
-  final IndexedWidgetBuilder itemBuilder;
+  final IndexedWidgetBuilder? itemBuilder;
 
   /// Called to build separators for between each item in the list.
   /// Called with 0 <= index < itemCount - 1.
@@ -421,6 +451,7 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
                     onNotification: (_) => _isTransitioning,
                     child: PositionedList(
                       itemBuilder: widget.itemBuilder,
+                      animatedItemBuilder: widget.animatedItemBuilder,
                       separatorBuilder: widget.separatorBuilder,
                       itemCount: widget.itemCount,
                       positionedIndex: primary.target,
@@ -451,6 +482,7 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
                       onNotification: (_) => false,
                       child: PositionedList(
                         itemBuilder: widget.itemBuilder,
+                        animatedItemBuilder: widget.animatedItemBuilder,
                         separatorBuilder: widget.separatorBuilder,
                         itemCount: widget.itemCount,
                         itemPositionsNotifier: secondary.itemPositionsNotifier,

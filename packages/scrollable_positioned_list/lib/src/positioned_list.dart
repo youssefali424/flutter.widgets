@@ -13,6 +13,9 @@ import 'item_positions_notifier.dart';
 import 'scroll_view.dart';
 import 'wrapping.dart';
 
+typedef ActiveOffsetWidgetBuilder = Widget Function(
+    BuildContext context, int index, double currentPos);
+
 /// A list of widgets similar to [ListView], except scroll control
 /// and position reporting is based on index rather than pixel offset.
 ///
@@ -28,7 +31,8 @@ class PositionedList extends StatefulWidget {
   const PositionedList({
     Key? key,
     required this.itemCount,
-    required this.itemBuilder,
+    this.itemBuilder,
+    this.animatedItemBuilder,
     this.separatorBuilder,
     this.controller,
     this.itemPositionsNotifier,
@@ -44,8 +48,7 @@ class PositionedList extends StatefulWidget {
     this.addSemanticIndexes = true,
     this.addRepaintBoundaries = true,
     this.addAutomaticKeepAlives = true,
-  })  : assert(itemCount != null),
-        assert(itemBuilder != null),
+  })  : assert(itemBuilder != null || animatedItemBuilder != null),
         assert((positionedIndex == 0) || (positionedIndex < itemCount)),
         super(key: key);
 
@@ -53,8 +56,13 @@ class PositionedList extends StatefulWidget {
   final int itemCount;
 
   /// Called to build children for the list with
+  /// 0 <= index < itemCount. and cactive position for
+  /// current active scroll percentage
+  final ActiveOffsetWidgetBuilder? animatedItemBuilder;
+
+  /// Called to build children for the list with
   /// 0 <= index < itemCount.
-  final IndexedWidgetBuilder itemBuilder;
+  final IndexedWidgetBuilder? itemBuilder;
 
   /// If not null, called to build separators for between each item in the list.
   /// Called with 0 <= index < itemCount - 1.
@@ -143,6 +151,7 @@ class _PositionedListState extends State<PositionedList> {
   late final ScrollController scrollController;
 
   bool updateScheduled = false;
+  final activeIndex = ValueNotifier(0.0);
 
   @override
   void initState() {
@@ -243,13 +252,23 @@ class _PositionedListState extends State<PositionedList> {
     }
   }
 
+  Widget _itemBuilder(int index, Widget child) {
+    return widget.addSemanticIndexes
+        ? IndexedSemantics(index: index, child: child)
+        : child;
+  }
+
   Widget _buildItem(int index) {
     return RegisteredElementWidget(
       key: ValueKey(index),
-      child: widget.addSemanticIndexes
-          ? IndexedSemantics(
-              index: index, child: widget.itemBuilder(context, index))
-          : widget.itemBuilder(context, index),
+      child: widget.itemBuilder == null
+          ? ValueListenableBuilder<double>(
+              valueListenable: activeIndex,
+              builder: (context, active, _) {
+                return _itemBuilder(
+                    index, widget.animatedItemBuilder!(context, index, active));
+              })
+          : _itemBuilder(index, widget.itemBuilder!(context, index)),
     );
   }
 
@@ -316,6 +335,8 @@ class _PositionedListState extends State<PositionedList> {
         }
         final positions = <ItemPosition>[];
         RenderViewportBase? viewport;
+        double currentIndex = 0.0;
+
         for (var element in elements) {
           final RenderBox box = element.renderObject as RenderBox;
           viewport ??= RenderAbstractViewport.of(box) as RenderViewportBase?;
@@ -336,17 +357,28 @@ class _PositionedListState extends State<PositionedList> {
             if (!reveal.isFinite) continue;
             final itemOffset =
                 reveal - viewport.offset.pixels + anchor * viewport.size.height;
-            positions.add(ItemPosition(
+            var itemPosition = ItemPosition(
                 index: key.value,
                 itemLeadingEdge: itemOffset.round() /
                     scrollController.position.viewportDimension,
                 itemTrailingEdge: (itemOffset + box.size.height).round() /
-                    scrollController.position.viewportDimension));
+                    scrollController.position.viewportDimension);
+            if (itemOffset.floor() <= 0.0 && itemOffset + box.size.height > 0) {
+              currentIndex =
+                  key.value + invLerp(0, box.size.height, itemOffset.abs());
+              itemPosition = ActivePosition(
+                  index: itemPosition.index,
+                  itemLeadingEdge: itemPosition.itemLeadingEdge,
+                  itemTrailingEdge: itemPosition.itemTrailingEdge,
+                  activeIndex: currentIndex);
+            }
+            positions.add(itemPosition);
           } else {
             final itemOffset =
                 box.localToGlobal(Offset.zero, ancestor: viewport).dx;
+
             if (!itemOffset.isFinite) continue;
-            positions.add(ItemPosition(
+            var itemPosition = ItemPosition(
                 index: key.value,
                 itemLeadingEdge: (widget.reverse
                             ? scrollController.position.viewportDimension -
@@ -359,12 +391,27 @@ class _PositionedListState extends State<PositionedList> {
                                 itemOffset
                             : (itemOffset + box.size.width))
                         .round() /
-                    scrollController.position.viewportDimension));
+                    scrollController.position.viewportDimension);
+            if (itemOffset <= 0 && itemOffset + box.size.width > 0) {
+              currentIndex =
+                  key.value + invLerp(0, box.size.width, itemOffset.abs());
+              itemPosition = ActivePosition(
+                  index: itemPosition.index,
+                  itemLeadingEdge: itemPosition.itemLeadingEdge,
+                  itemTrailingEdge: itemPosition.itemTrailingEdge,
+                  activeIndex: currentIndex);
+            }
+            positions.add(itemPosition);
           }
         }
         widget.itemPositionsNotifier?.itemPositions.value = positions;
+        activeIndex.value = currentIndex;
         updateScheduled = false;
       });
     }
+  }
+
+  double invLerp(num a, num b, num v) {
+    return (v - a) / (b - a);
   }
 }
