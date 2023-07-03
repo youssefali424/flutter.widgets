@@ -3,15 +3,16 @@
 // found in the LICENSE file.
 
 import 'dart:math';
+
 import 'package:built_collection/built_collection.dart';
-import 'package:flutter/material.dart';
 import 'package:collection/collection.dart';
-
+import 'package:flutter/material.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
-import 'package:scrollable_positioned_list_example/interpolate.dart';
-import 'package:scrollable_positioned_list_example/network/networkService.dart';
 
+import 'interpolate.dart';
 import 'models/collectionPhoto.dart';
+import 'models/collectionPhoto.dart';
+import 'network/networkService.dart';
 
 const numberOfItems = 5001;
 const minItemHeight = 20.0;
@@ -62,6 +63,11 @@ class _ScrollablePositionedListPageState
   /// Controller to scroll or jump to a particular item.
   final ItemScrollController itemScrollController = ItemScrollController();
 
+  /// Controller to scroll a certain number of pixels relative to the current
+  /// scroll offset.
+  final ScrollOffsetController scrollOffsetController =
+      ScrollOffsetController();
+
   /// Listener that reports the position of items when the list is scrolled.
   final ItemPositionsListener itemPositionsListener =
       ItemPositionsListener.create();
@@ -95,36 +101,27 @@ class _ScrollablePositionedListPageState
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-        child: Material(
-          child: OrientationBuilder(
-            builder: (context, orientation) => Column(
-              children: <Widget>[
-                Expanded(
-                  child: photosList == null
-                      ? Center(
-                          child: CircularProgressIndicator(),
-                        )
-                      : list(orientation),
-                ),
-                positionsView,
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 5),
-                  child: Row(
+  Widget build(BuildContext context) => Material(
+        child: OrientationBuilder(
+          builder: (context, orientation) => Column(
+            children: <Widget>[
+              Expanded(
+                child: list(orientation),
+              ),
+              positionsView,
+              Row(
+                children: <Widget>[
+                  Column(
                     children: <Widget>[
-                      Column(
-                        children: <Widget>[
-                          scrollControlButtons,
-                          const SizedBox(height: 10),
-                          jumpControlButtons,
-                          alignmentControl,
-                        ],
-                      ),
+                      scrollControlButtons,
+                      const SizedBox(height: 10),
+                      jumpControlButtons,
+                      alignmentControl,
                     ],
                   ),
-                )
-              ],
-            ),
+                ],
+              )
+            ],
           ),
         ),
       );
@@ -224,12 +221,24 @@ class _ScrollablePositionedListPageState
   Widget get scrollControlButtons => Row(
         children: <Widget>[
           const Text('scroll to'),
-          scrollButton(0),
-          scrollButton(5),
-          scrollButton(10),
-          scrollButton(100),
-          scrollButton(1000),
-          scrollButton(5000),
+          scrollItemButton(0),
+          scrollItemButton(5),
+          scrollItemButton(10),
+          scrollItemButton(100),
+          scrollItemButton(1000),
+          scrollItemButton(5000),
+        ],
+      );
+
+  Widget get scrollOffsetControlButtons => Row(
+        children: <Widget>[
+          const Text('scroll by'),
+          scrollOffsetButton(-1000),
+          scrollOffsetButton(-100),
+          scrollOffsetButton(-10),
+          scrollOffsetButton(10),
+          scrollOffsetButton(100),
+          scrollOffsetButton(1000),
         ],
       );
 
@@ -245,24 +254,41 @@ class _ScrollablePositionedListPageState
         ],
       );
 
-  final _scrollButtonStyle = TextButton.styleFrom(
-      padding: EdgeInsets.symmetric(horizontal: 10),
-      minimumSize: Size.zero,
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      visualDensity: VisualDensity(horizontal: VisualDensity.minimumDensity));
+  ButtonStyle _scrollButtonStyle({required double horizonalPadding}) =>
+      ButtonStyle(
+        padding: MaterialStateProperty.all(
+          EdgeInsets.symmetric(horizontal: horizonalPadding, vertical: 0),
+        ),
+        minimumSize: MaterialStateProperty.all(Size.zero),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      );
 
-  Widget scrollButton(int value) => TextButton(
+  Widget scrollItemButton(int value) => TextButton(
         key: ValueKey<String>('Scroll$value'),
         onPressed: () => scrollTo(value),
         child: Text('$value'),
-        style: _scrollButtonStyle,
+        style: _scrollButtonStyle(horizonalPadding: 20),
+      );
+
+  Widget scrollOffsetButton(int value) => TextButton(
+        key: ValueKey<String>('Scroll$value'),
+        onPressed: () => scrollBy(value.toDouble()),
+        child: Text('$value'),
+        style: _scrollButtonStyle(horizonalPadding: 10),
+      );
+
+  Widget scrollPixelButton(int value) => TextButton(
+        key: ValueKey<String>('Scroll$value'),
+        onPressed: () => scrollTo(value),
+        child: Text('$value'),
+        style: _scrollButtonStyle(horizonalPadding: 20),
       );
 
   Widget jumpButton(int value) => TextButton(
         key: ValueKey<String>('Jump$value'),
         onPressed: () => jumpTo(value),
         child: Text('$value'),
-        style: _scrollButtonStyle,
+        style: _scrollButtonStyle(horizonalPadding: 20),
       );
 
   void scrollTo(int index) => itemScrollController.scrollTo(
@@ -270,6 +296,9 @@ class _ScrollablePositionedListPageState
       duration: scrollDuration,
       curve: Curves.easeInOutCubic,
       alignment: alignment);
+
+  void scrollBy(double offset) => scrollOffsetController.animateScroll(
+      offset: offset, duration: scrollDuration, curve: Curves.easeInOutCubic);
 
   void jumpTo(int index) =>
       itemScrollController.jumpTo(index: index, alignment: alignment);

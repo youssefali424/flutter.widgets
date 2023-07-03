@@ -140,7 +140,14 @@ mixin RenderVisibilityDetectorBase on RenderObject {
     }
     bool isFirstUpdate = _updates.isEmpty;
     _updates[key] = () {
-      _fireCallback(layer, bounds);
+      if (bounds == null) {
+        // This can happen if set onVisibilityChanged was called with a non-null
+        // value but this render object has not been laid out. In that case,
+        // it has no size or geometry, and we should not worry about firing
+        // an update since it never has been visible.
+        return;
+      }
+      _fireCallback(layer, bounds!);
     };
     final updateInterval = VisibilityDetectorController.instance.updateInterval;
     if (updateInterval == Duration.zero) {
@@ -176,14 +183,17 @@ mixin RenderVisibilityDetectorBase on RenderObject {
 
     // Check if any ancestors decided to skip painting this RenderObject.
     if (parent != null) {
-      RenderObject ancestor = parent! as RenderObject;
+      // TODO(goderbauer): Remove ignore and cast when https://github.com/flutter/flutter/pull/128973 has reached stable.
+      RenderObject ancestor =
+          parent! as RenderObject; // ignore: unnecessary_cast
       RenderObject child = this;
       while (ancestor.parent != null) {
         if (!ancestor.paintsChild(child)) {
           return VisibilityInfo(key: key, size: bounds.size);
         }
         child = ancestor;
-        ancestor = ancestor.parent! as RenderObject;
+        // TODO(goderbauer): Remove ignore and cast when https://github.com/flutter/flutter/pull/128973 has reached stable.
+        ancestor = ancestor.parent! as RenderObject; // ignore: unnecessary_cast
       }
     }
 
@@ -228,7 +238,9 @@ mixin RenderVisibilityDetectorBase on RenderObject {
 
   /// Used to get the bounds of the render object when it is time to update
   /// clients about visibility.
-  Rect get bounds;
+  ///
+  /// A null value means bounds are not available.
+  Rect? get bounds;
 
   Matrix4? _lastPaintTransform;
   Rect? _lastPaintClipBounds;
@@ -280,7 +292,7 @@ class RenderVisibilityDetector extends RenderProxyBox
   final Key key;
 
   @override
-  Rect get bounds => semanticBounds;
+  Rect? get bounds => hasSize ? semanticBounds : null;
 }
 
 /// The [RenderObject] corresponding to the [SliverVisibilityDetector] widget.
@@ -302,7 +314,11 @@ class RenderSliverVisibilityDetector extends RenderProxySliver
   final Key key;
 
   @override
-  Rect get bounds {
+  Rect? get bounds {
+    if (geometry == null) {
+      return null;
+    }
+
     Size widgetSize;
     Offset widgetOffset;
     switch (applyGrowthDirectionToAxisDirection(

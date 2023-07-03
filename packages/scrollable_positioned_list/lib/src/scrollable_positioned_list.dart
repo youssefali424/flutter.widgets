@@ -8,11 +8,12 @@ import 'dart:math';
 import 'package:collection/collection.dart' show IterableExtension;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
-import 'item_positions_listener.dart';
 import 'item_positions_notifier.dart';
 import 'positioned_list.dart';
 import 'post_mount_callback.dart';
+import 'scroll_offset_notifier.dart';
 
 /// Number of screens to scroll when scrolling a long distance.
 const int _screenScrollCount = 2;
@@ -29,6 +30,9 @@ const int _screenScrollCount = 2;
 /// in the list.  The [itemPositionsNotifier] can be used to get a list of items
 /// currently laid out by the list.
 ///
+/// The [scrollOffsetListener] can be used to get updates about scroll position
+/// changes.
+///
 /// All other parameters are the same as specified in [ListView].
 class ScrollablePositionedList extends StatefulWidget {
   /// Create a [ScrollablePositionedList] whose items are provided by
@@ -40,6 +44,8 @@ class ScrollablePositionedList extends StatefulWidget {
     this.itemScrollController,
     this.shrinkWrap = false,
     ItemPositionsListener? itemPositionsListener,
+    this.scrollOffsetController,
+    ScrollOffsetListener? scrollOffsetListener,
     this.initialScrollIndex = 0,
     this.initialAlignment = 0,
     this.scrollDirection = Axis.vertical,
@@ -55,6 +61,7 @@ class ScrollablePositionedList extends StatefulWidget {
         assert(itemCount != null),
         assert(itemBuilder != null),
         itemPositionsNotifier = itemPositionsListener as ItemPositionsNotifier?,
+        scrollOffsetNotifier = scrollOffsetListener as ScrollOffsetNotifier?,
         separatorBuilder = null,
         super(key: key);
 
@@ -68,6 +75,8 @@ class ScrollablePositionedList extends StatefulWidget {
     this.shrinkWrap = false,
     this.itemScrollController,
     ItemPositionsListener? itemPositionsListener,
+    this.scrollOffsetController,
+    ScrollOffsetListener? scrollOffsetListener,
     this.initialScrollIndex = 0,
     this.initialAlignment = 0,
     this.scrollDirection = Axis.vertical,
@@ -83,6 +92,30 @@ class ScrollablePositionedList extends StatefulWidget {
         assert(itemCount != null),
         assert(itemBuilder != null),
         assert(separatorBuilder != null),
+        itemPositionsNotifier = itemPositionsListener as ItemPositionsNotifier?,
+        scrollOffsetNotifier = scrollOffsetListener as ScrollOffsetNotifier?,
+        super(key: key);
+
+  const ScrollablePositionedList.animatedBuilder({
+    required this.itemCount,
+    required this.animatedItemBuilder,
+    this.separatorBuilder,
+    Key? key,
+    this.shrinkWrap = false,
+    this.itemScrollController,
+    ItemPositionsListener? itemPositionsListener,
+    this.initialScrollIndex = 0,
+    this.initialAlignment = 0,
+    this.scrollDirection = Axis.vertical,
+    this.reverse = false,
+    this.physics,
+    this.semanticChildCount,
+    this.padding,
+    this.addSemanticIndexes = true,
+    this.addAutomaticKeepAlives = true,
+    this.addRepaintBoundaries = true,
+    this.minCacheExtent,
+  })  : itemBuilder = null,
         itemPositionsNotifier = itemPositionsListener as ItemPositionsNotifier?,
         super(key: key);
 
@@ -130,6 +163,11 @@ class ScrollablePositionedList extends StatefulWidget {
 
   /// Notifier that reports the items laid out in the list after each frame.
   final ItemPositionsNotifier? itemPositionsNotifier;
+
+  final ScrollOffsetController? scrollOffsetController;
+
+  /// Notifier that reports the changes to the scroll offset.
+  final ScrollOffsetNotifier? scrollOffsetNotifier;
 
   /// Index of an item to initially align within the viewport.
   final int initialScrollIndex;
@@ -285,6 +323,41 @@ class ItemScrollController {
   }
 }
 
+/// Controller to scroll a certain number of pixels relative to the current
+/// scroll offset.
+///
+/// Scrolls [offset] pixels relative to the current scroll offset. [offset] can
+/// be positive or negative.
+///
+/// This is an experimental API and is subject to change.
+/// Behavior may be ill-defined in some cases.  Please file bugs.
+class ScrollOffsetController {
+  Future<void> animateScroll(
+      {required double offset,
+      required Duration duration,
+      Curve curve = Curves.linear}) async {
+    final currentPosition =
+        _scrollableListState!.primary.scrollController.offset;
+    final newPosition = currentPosition + offset;
+    await _scrollableListState!.primary.scrollController.animateTo(
+      newPosition,
+      duration: duration,
+      curve: curve,
+    );
+  }
+
+  _ScrollablePositionedListState? _scrollableListState;
+
+  void _attach(_ScrollablePositionedListState scrollableListState) {
+    assert(_scrollableListState == null);
+    _scrollableListState = scrollableListState;
+  }
+
+  void _detach() {
+    _scrollableListState = null;
+  }
+}
+
 class _ScrollablePositionedListState extends State<ScrollablePositionedList>
     with TickerProviderStateMixin {
   /// Details for the primary (active) [ListView].
@@ -300,10 +373,14 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
 
   bool _isTransitioning = false;
 
+  var _animationController;
+
+  double previousOffset = 0;
+
   @override
   void initState() {
     super.initState();
-    ItemPosition? initialPosition = PageStorage.of(context)!.readState(context);
+    ItemPosition? initialPosition = PageStorage.of(context).readState(context);
     primary.target = initialPosition?.index ?? widget.initialScrollIndex;
     primary.alignment =
         initialPosition?.itemLeadingEdge ?? widget.initialAlignment;
@@ -311,13 +388,31 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
       primary.target = widget.itemCount - 1;
     }
     widget.itemScrollController?._attach(this);
+    widget.scrollOffsetController?._attach(this);
     primary.itemPositionsNotifier.itemPositions.addListener(_updatePositions);
     secondary.itemPositionsNotifier.itemPositions.addListener(_updatePositions);
+    primary.scrollController.addListener(() {
+      final currentOffset = primary.scrollController.offset;
+      final offsetChange = currentOffset - previousOffset;
+      previousOffset = currentOffset;
+      if (!_isTransitioning |
+          (widget.scrollOffsetNotifier?.recordProgrammaticScrolls ?? false)) {
+        widget.scrollOffsetNotifier?.changeController.add(offsetChange);
+      }
+    });
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    widget.itemScrollController?._attach(this);
+    widget.scrollOffsetController?._attach(this);
   }
 
   @override
   void deactivate() {
     widget.itemScrollController?._detach();
+    widget.scrollOffsetController?._detach();
     super.deactivate();
   }
 
@@ -327,6 +422,7 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
         .removeListener(_updatePositions);
     secondary.itemPositionsNotifier.itemPositions
         .removeListener(_updatePositions);
+    _animationController?.dispose();
     super.dispose();
   }
 
@@ -365,9 +461,8 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
     return LayoutBuilder(
       builder: (context, constraints) {
         final cacheExtent = _cacheExtent(constraints);
-        return GestureDetector(
-          onPanDown: (_) => _stopScroll(canceled: true),
-          excludeFromSemantics: true,
+        return Listener(
+          onPointerDown: (_) => _stopScroll(canceled: true),
           child: Stack(
             children: <Widget>[
               PostMountCallback(
@@ -439,7 +534,10 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
   }
 
   double _cacheExtent(BoxConstraints constraints) => max(
-        constraints.maxHeight * _screenScrollCount,
+        (widget.scrollDirection == Axis.vertical
+                ? constraints.maxHeight
+                : constraints.maxWidth) *
+            _screenScrollCount,
         widget.minCacheExtent ?? 0,
       );
 
@@ -466,16 +564,19 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
       index = widget.itemCount - 1;
     }
     if (_isTransitioning) {
+      final scrollCompleter = Completer<void>();
       _stopScroll(canceled: true);
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        _startScroll(
+      SchedulerBinding.instance.addPostFrameCallback((_) async {
+        await _startScroll(
           index: index,
           alignment: alignment,
           duration: duration,
           curve: curve,
           opacityAnimationWeights: opacityAnimationWeights,
         );
+        scrollCompleter.complete();
       });
+      await scrollCompleter.future;
     } else {
       await _startScroll(
         index: index,
@@ -516,9 +617,11 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
       startAnimationCallback = () {
         SchedulerBinding.instance.addPostFrameCallback((_) {
           startAnimationCallback = () {};
-
-          opacity.parent = _opacityAnimation(opacityAnimationWeights).animate(
-              AnimationController(vsync: this, duration: duration)..forward());
+          _animationController?.dispose();
+          _animationController =
+              AnimationController(vsync: this, duration: duration)..forward();
+          opacity.parent = _opacityAnimation(opacityAnimationWeights)
+              .animate(_animationController);
           secondary.scrollController.jumpTo(-direction *
               (_screenScrollCount *
                       primary.scrollController.position.viewportDimension -
@@ -559,17 +662,19 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
       }
     }
 
-    setState(() {
-      if (opacity.value >= 0.5) {
-        // Secondary [ListView] is more visible than the primary; make it the
-        // new primary.
-        var temp = primary;
-        primary = secondary;
-        secondary = temp;
-      }
-      _isTransitioning = false;
-      opacity.parent = const AlwaysStoppedAnimation<double>(0);
-    });
+    if (mounted) {
+      setState(() {
+        if (opacity.value >= 0.5) {
+          // Secondary [ListView] is more visible than the primary; make it the
+          // new primary.
+          var temp = primary;
+          primary = secondary;
+          secondary = temp;
+        }
+        _isTransitioning = false;
+        opacity.parent = const AlwaysStoppedAnimation<double>(0);
+      });
+    }
   }
 
   Animatable<double> _opacityAnimation(List<double> opacityAnimationWeights) {
@@ -593,7 +698,7 @@ class _ScrollablePositionedListState extends State<ScrollablePositionedList>
         .where((ItemPosition position) =>
             position.itemLeadingEdge < 1 && position.itemTrailingEdge > 0);
     if (itemPositions.isNotEmpty) {
-      PageStorage.of(context)!.writeState(
+      PageStorage.of(context).writeState(
           context,
           itemPositions.reduce((value, element) =>
               value.itemLeadingEdge < element.itemLeadingEdge

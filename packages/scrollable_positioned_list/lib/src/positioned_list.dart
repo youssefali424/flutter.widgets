@@ -328,7 +328,8 @@ class _PositionedListState extends State<PositionedList> {
     if (!updateScheduled) {
       updateScheduled = true;
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (registeredElements.value == null) {
+        final elements = registeredElements.value;
+        if (elements == null) {
           updateScheduled = false;
           return;
         }
@@ -336,7 +337,7 @@ class _PositionedListState extends State<PositionedList> {
         RenderViewportBase? viewport;
         double currentIndex = 0.0;
 
-        for (var element in registeredElements.value!) {
+        for (var element in elements) {
           final RenderBox box = element.renderObject as RenderBox;
           viewport ??= RenderAbstractViewport.of(box) as RenderViewportBase?;
           var anchor = 0.0;
@@ -369,11 +370,12 @@ class _PositionedListState extends State<PositionedList> {
                   itemTrailingEdge: itemPosition.itemTrailingEdge,
                   activeIndex: currentIndex);
             }
-            positions.add(itemPosition);
+            positions.add(itemPosition);            
           } else {
             final itemOffset =
                 box.localToGlobal(Offset.zero, ancestor: viewport).dx;
 
+            if (!itemOffset.isFinite) continue;
             var itemPosition = ItemPosition(
                 index: key.value,
                 itemLeadingEdge: (widget.reverse
