@@ -115,31 +115,13 @@ class ScrollablePositionedList extends StatefulWidget {
     this.addAutomaticKeepAlives = true,
     this.addRepaintBoundaries = true,
     this.minCacheExtent,
+    this.scrollOffsetController,
+    ScrollOffsetListener? scrollOffsetListener,
   })  : itemBuilder = null,
+        assert(itemCount != null),
+        assert(animatedItemBuilder != null),
         itemPositionsNotifier = itemPositionsListener as ItemPositionsNotifier?,
-        super(key: key);
-
-  const ScrollablePositionedList.animatedBuilder({
-    required this.itemCount,
-    required this.animatedItemBuilder,
-    this.separatorBuilder,
-    Key? key,
-    this.shrinkWrap = false,
-    this.itemScrollController,
-    ItemPositionsListener? itemPositionsListener,
-    this.initialScrollIndex = 0,
-    this.initialAlignment = 0,
-    this.scrollDirection = Axis.vertical,
-    this.reverse = false,
-    this.physics,
-    this.semanticChildCount,
-    this.padding,
-    this.addSemanticIndexes = true,
-    this.addAutomaticKeepAlives = true,
-    this.addRepaintBoundaries = true,
-    this.minCacheExtent,
-  })  : itemBuilder = null,
-        itemPositionsNotifier = itemPositionsListener as ItemPositionsNotifier?,
+        scrollOffsetNotifier = scrollOffsetListener as ScrollOffsetNotifier?,
         super(key: key);
 
   /// Number of items the [itemBuilder] can produce.
